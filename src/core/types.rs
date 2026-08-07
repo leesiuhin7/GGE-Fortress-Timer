@@ -9,6 +9,27 @@ pub(crate) enum Kingdom {
     StormIslands = 4,
 }
 
+impl TryFrom<u8> for Kingdom {
+    type Error = ();
+
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        match value {
+            0 => Ok(Self::GreatEmpire),
+            1 => Ok(Self::BurningSands),
+            2 => Ok(Self::EverwinterGlacier),
+            3 => Ok(Self::FirePeaks),
+            4 => Ok(Self::StormIslands),
+            _ => Err(()),
+        }
+    }
+}
+
+impl From<Kingdom> for u8 {
+    fn from(value: Kingdom) -> Self {
+        value as u8
+    }
+}
+
 #[derive(PartialEq, Eq, Hash, Clone)]
 pub(crate) struct Position {
     pub(crate) x: u32,
@@ -22,6 +43,7 @@ pub(crate) struct Location {
     pub(crate) attack_time: SystemTime,
 }
 
+#[derive(PartialEq, Eq, Hash, Clone)]
 pub(crate) struct Grid {
     pub(crate) x: u32,
     pub(crate) y: u32,
