@@ -1,19 +1,18 @@
 use std::time::SystemTime;
 
-use crate::core::types::{Config, Location};
+use crate::core::types::Config;
 
 pub(super) struct CacheItem {
-    location: Location,
+    attack_time: SystemTime,
     expiry_time: SystemTime,
     retries: Option<u8>,
     config: Config,
 }
 
 impl CacheItem {
-    pub(super) fn new(location: Location, config: Config) -> Self {
-        let attack_time = location.attack_time;
+    pub(super) fn new(attack_time: SystemTime, config: Config) -> Self {
         CacheItem {
-            location,
+            attack_time,
             expiry_time: attack_time,
             retries: None,
             config,
@@ -35,24 +34,24 @@ impl CacheItem {
         }
     }
 
-    pub(super) fn update(&mut self, location: Location) -> Result<(), ()> {
+    pub(super) fn update(&mut self, attack_time: SystemTime) -> Result<(), ()> {
         self.retries = None; // Reset retry count
-        if self.location == location {
+        if self.attack_time == attack_time {
             return Err(());
         }
-        self.location = location;
+        self.attack_time = attack_time;
         // Enforce minimum update interval
         self.expiry_time =
             if let Some(min_time) = SystemTime::now().checked_add(self.config.min_interval) {
-                min_time.max(self.location.attack_time)
+                min_time.max(self.attack_time)
             } else {
-                self.location.attack_time
+                self.attack_time
             };
         Ok(())
     }
 
-    pub(super) fn location(&self) -> &Location {
-        &self.location
+    pub(super) fn attack_time(&self) -> SystemTime {
+        self.attack_time
     }
 
     pub(super) fn expiry_time(&self) -> SystemTime {

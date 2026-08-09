@@ -51,12 +51,22 @@ enum Action {
     None,
 }
 
+enum UpdateResult {
+    Updated(Location),
+    NotUpdated,
+}
+
 enum RequestResult {
     Success,
     Failed,
     NotFound,
     NotNeeded,
-    ItemRemoved,
+    ItemRemoved(Position),
+}
+
+pub(crate) enum Operation {
+    Update(Location),
+    Remove(Position),
 }
 
 /// A cache for [`Location`] to reduce the amount of requests needed to keep them up to date.
@@ -70,7 +80,7 @@ pub(crate) struct LocationCache {
     pending: BinaryHeap<Reverse<PendingUpdate>>,
     request_sender: mpsc::Sender<Grid>,
     update_receiver: mpsc::Receiver<Location>,
-    output_sender: mpsc::Sender<Vec<Location>>,
+    action_sender: mpsc::Sender<Operation>,
     config: Config,
 }
 
@@ -78,7 +88,7 @@ impl LocationCache {
     pub(crate) fn new(
         request_sender: mpsc::Sender<Grid>,
         update_receiver: mpsc::Receiver<Location>,
-        output_sender: mpsc::Sender<Vec<Location>>,
+        action_sender: mpsc::Sender<Operation>,
         config: Config,
     ) -> Self {
         LocationCache {
@@ -86,7 +96,7 @@ impl LocationCache {
             pending: BinaryHeap::new(),
             request_sender,
             update_receiver,
-            output_sender,
+            action_sender,
             config,
         }
     }
@@ -110,16 +120,23 @@ impl LocationCache {
 
             let error = match action {
                 Action::HandleUpdate(None) => true, // Update channel closed
-                Action::HandleUpdate(Some(location)) => {
-                    if self.handle_update(location).is_ok() {
-                        self.broadcast_locations().await.is_err() // Output channel closed
-                    } else {
-                        false
-                    }
-                }
-                Action::RequestUpdate => {
-                    matches!(self.request_update().await, RequestResult::Failed)
-                }
+                Action::HandleUpdate(Some(location)) => match self.handle_update(location) {
+                    UpdateResult::Updated(location) => self
+                        .action_sender
+                        .send(Operation::Update(location))
+                        .await
+                        .is_err(),
+                    UpdateResult::NotUpdated => false,
+                },
+                Action::RequestUpdate => match self.request_update().await {
+                    RequestResult::ItemRemoved(position) => self
+                        .action_sender
+                        .send(Operation::Remove(position))
+                        .await
+                        .is_err(),
+                    RequestResult::Failed => true,
+                    _ => false,
+                },
                 Action::None => false,
             };
             if error {
@@ -128,37 +145,32 @@ impl LocationCache {
         }
     }
 
-    fn handle_update(&mut self, location: Location) -> Result<(), ()> {
-        let position = location.position.clone();
+    fn handle_update(&mut self, location: Location) -> UpdateResult {
+        let Location {
+            position,
+            attack_time,
+        } = location.clone();
 
         let expiry_time = match self.cache.entry(position.clone()) {
             Occupied(mut entry) => {
                 let item = entry.get_mut();
-                item.update(location).map(|()| item.expiry_time())
+                match item.update(attack_time).map(|()| item.expiry_time()) {
+                    Ok(expiry_time) => expiry_time,
+                    Err(()) => {
+                        return UpdateResult::NotUpdated;
+                    }
+                }
             }
             Vacant(entry) => {
-                let item = entry.insert(CacheItem::new(location, self.config.clone()));
-                Ok(item.expiry_time())
+                let item = entry.insert(CacheItem::new(attack_time, self.config.clone()));
+                item.expiry_time()
             }
-        }?;
+        };
 
         self.pending
             .push(Reverse(PendingUpdate::new(expiry_time, position)));
-        Ok(())
-    }
 
-    /// Sends all stored [`Location`] via [`mpsc::Sender`]
-    ///
-    /// # Cancellation
-    ///
-    /// This operation is cancellation safe. Cancellation leads to the message to not be sent.
-    async fn broadcast_locations(&self) -> Result<(), ()> {
-        let locations = self
-            .cache
-            .values()
-            .map(|item| item.location().clone())
-            .collect();
-        self.output_sender.send(locations).await.map_err(|_| ())
+        UpdateResult::Updated(location)
     }
 
     /// Requests an update on the next cache item if it has expired.
@@ -177,7 +189,7 @@ impl LocationCache {
         if item.retries().unwrap_or(0) > self.config.max_retries {
             // Remove item after retries exceed limit
             self.cache.remove(&position).unwrap(); // Item is guaranteed to be in cache
-            return RequestResult::ItemRemoved;
+            return RequestResult::ItemRemoved(position);
         }
 
         if time < item.expiry_time() {
