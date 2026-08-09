@@ -1,6 +1,6 @@
 use mongodb::error::Error as DbError;
 use tokio::sync::mpsc;
-use tracing::error;
+use tracing::warn;
 
 use crate::{
     client::{IdleClient, Response},
@@ -59,7 +59,7 @@ impl<'a> Manager<'a> {
                     }
                 };
                 if result.is_err() {
-                    error!("Database operation failed.");
+                    warn!("Database operation failed.");
                 }
             }
         };
