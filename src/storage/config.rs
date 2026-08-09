@@ -1,5 +1,6 @@
 use std::time::Duration;
 
+use mongodb::{bson::doc, error::Error};
 use serde::Deserialize;
 
 use crate::{
@@ -7,6 +8,7 @@ use crate::{
     config::Config,
     core::{Config as CacheConfig, Kingdom},
     map::Config as MapConfig,
+    storage::Storage,
 };
 
 #[derive(Deserialize)]
@@ -136,5 +138,17 @@ impl TryFrom<ConfigDocument> for Config {
                 cooldown: cooldown.try_into()?,
             },
         })
+    }
+}
+
+impl Storage {
+    pub(crate) async fn get_config(&self) -> Result<Config, Error> {
+        match self.collections.config.find_one(doc! {}).await {
+            Ok(Some(document)) => {
+                Config::try_from(document).map_err(|()| Error::custom("Deserialize"))
+            }
+            Ok(None) => Err(Error::custom("Config not found")),
+            Err(error) => Err(error),
+        }
     }
 }
