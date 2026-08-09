@@ -112,9 +112,13 @@ impl LocationCache {
             // Using peek for cancellation safety
             let update = self.pending.peek().map(|Reverse(update)| update);
 
+            let sleep = async move || {
+                utils::sleep_until(update?.time).await;
+                Some(())
+            };
             let action = tokio::select! {
                 location = self.update_receiver.recv() => Action::HandleUpdate(location),
-                () = utils::sleep_until(update.unwrap().time), if update.is_some() => Action::RequestUpdate,
+                Some(()) = sleep() => Action::RequestUpdate,
                 else => Action::None,
             };
 
