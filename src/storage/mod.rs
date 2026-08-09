@@ -1,13 +1,17 @@
 mod config;
+mod explorer;
 mod location;
 
 use mongodb::{Client, Collection, IndexModel, bson::doc, error::Error};
 
-use crate::storage::{config::ConfigDocument, location::LocationDocument};
+use crate::storage::{
+    config::ConfigDocument, explorer::ExplorerItemDocument, location::LocationDocument,
+};
 
 struct Collections {
     locations: Collection<LocationDocument>,
     config: Collection<ConfigDocument>,
+    explorer: Collection<ExplorerItemDocument>,
 }
 
 pub(crate) struct Storage {
@@ -32,9 +36,22 @@ impl Storage {
 
         let config = db.collection("config");
 
+        let explorer = db.collection("explorer");
+        explorer
+            .create_index(
+                IndexModel::builder()
+                    .keys(doc! {"kingdom_id": 1, "x": 1, "y": 1})
+                    .build(),
+            )
+            .await?;
+
         Ok(Storage {
             client,
-            collections: Collections { locations, config },
+            collections: Collections {
+                locations,
+                config,
+                explorer,
+            },
         })
     }
 }

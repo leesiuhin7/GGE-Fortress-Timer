@@ -5,4 +5,9 @@ mod explorer;
 mod serialize;
 mod utils;
 
-pub(crate) use crate::map::{adapter::Adapter, config::Config, deserialize::deserialize};
+pub(crate) use crate::map::{
+    adapter::Adapter,
+    config::Config,
+    deserialize::deserialize,
+    explorer::{Explorer, ExplorerItem},
+};

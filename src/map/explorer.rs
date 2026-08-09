@@ -6,11 +6,11 @@ use std::{
         hash_map::Entry::{Occupied, Vacant},
     },
     ops::{AddAssign, SubAssign},
-    time::Duration,
+    time::{Duration, SystemTime},
 };
 
 use itertools::Itertools;
-use tokio::time::Instant;
+use tokio::sync::mpsc;
 
 use crate::core::{Grid, Kingdom};
 
@@ -23,65 +23,77 @@ fn sq_dist_from_center(grid: &Grid) -> f64 {
     dx.powi(2) + dy.powi(2)
 }
 
-#[derive(PartialEq, Eq)]
-struct Item {
-    time: Instant,
-    grid: Grid,
+#[derive(PartialEq, Eq, Clone)]
+pub(crate) struct ExplorerItem {
+    pub(crate) explore_time: SystemTime,
+    pub(crate) grid: Grid,
 }
 
-impl Item {
+impl ExplorerItem {
     fn new(grid: Grid, cooldown: Duration) -> Self {
-        Item {
-            time: Instant::now() + cooldown,
+        ExplorerItem {
+            explore_time: SystemTime::now() + cooldown,
             grid,
         }
     }
 
-    fn with_time(grid: Grid, time: Instant) -> Self {
-        Item { time, grid }
+    fn with_time(grid: Grid, explore_time: SystemTime) -> Self {
+        ExplorerItem { explore_time, grid }
     }
 }
 
-impl PartialOrd for Item {
+impl PartialOrd for ExplorerItem {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
         Some(self.cmp(other))
     }
 }
 
-impl Ord for Item {
+impl Ord for ExplorerItem {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        self.time
-            .cmp(&other.time)
+        self.explore_time
+            .cmp(&other.explore_time)
             // Prioritize ones that are closer to the center
             .then(sq_dist_from_center(&self.grid).total_cmp(&sq_dist_from_center(&other.grid)))
     }
 }
 
-pub(super) struct Explorer {
+pub(crate) struct Explorer {
     ignore_counts: HashMap<Grid, u32>,
-    grids: BinaryHeap<Reverse<Item>>,
+    grids: BinaryHeap<Reverse<ExplorerItem>>,
     cooldown: Duration,
+    update_sender: mpsc::Sender<ExplorerItem>,
 }
 
 impl Explorer {
-    pub(super) fn new(kingdoms: Vec<Kingdom>, cooldown: Duration) -> Self {
+    pub(crate) fn new(
+        update_sender: mpsc::Sender<ExplorerItem>,
+        kingdoms: Vec<Kingdom>,
+        cooldown: Duration,
+    ) -> Self {
         let mut ignore_counts = HashMap::new();
         let mut grids = BinaryHeap::new();
 
-        let time = Instant::now(); // Use the same time for all items to prevent affecting order
+        let time = SystemTime::now(); // Use the same time for all items to prevent affecting order
         for ((x, y), kingdom) in (0..=98)
             .cartesian_product(0..=98)
             .cartesian_product(kingdoms)
         {
             let grid = Grid { x, y, kingdom };
             ignore_counts.insert(grid.clone(), 0);
-            grids.push(Reverse(Item::with_time(grid, time)));
+            grids.push(Reverse(ExplorerItem::with_time(grid, time)));
         }
 
         Explorer {
             ignore_counts,
             grids,
             cooldown,
+            update_sender,
+        }
+    }
+
+    pub(crate) fn load_items(&mut self, items: impl Iterator<Item = ExplorerItem>) {
+        for item in items {
+            self.load_item(item);
         }
     }
 
@@ -90,10 +102,13 @@ impl Explorer {
     /// # Cancellation
     ///
     /// This operation is cancellation safe. Cancellation simply aborts waiting.
-    pub(super) async fn get_next(&mut self) -> Option<Grid> {
+    pub(super) async fn get_next(&mut self) -> Option<Result<Grid, ()>> {
         loop {
             let peek = self.grids.peek_mut()?;
-            let Reverse(Item { time, grid }) = &*peek;
+            let Reverse(ExplorerItem {
+                explore_time: time,
+                grid,
+            }) = &*peek;
 
             // Using unwrap as ignore_counts should be a superset of grids
             let ignore_count = self.ignore_counts.get_mut(grid).unwrap();
@@ -103,16 +118,37 @@ impl Explorer {
                 continue; // Move to the next item
             }
 
-            tokio::time::sleep_until(*time).await;
+            let duration = time
+                .duration_since(SystemTime::now())
+                .unwrap_or(Duration::ZERO);
+            tokio::time::sleep(duration).await;
             // Deferring removal for cancellation safety
-            let Reverse(Item { time: _, grid }) = PeekMut::pop(peek);
-            self.refresh_cooldown(grid.clone()); // Reset cooldown
-            return Some(grid);
+            let Reverse(ExplorerItem {
+                explore_time: _,
+                grid,
+            }) = PeekMut::pop(peek);
+            // Reset cooldown
+            return Some(self.refresh_cooldown(grid.clone()).await.map(|()| grid));
         }
     }
 
-    pub(super) fn refresh_cooldown(&mut self, grid: Grid) {
-        match self.ignore_counts.entry(grid.clone()) {
+    /// Refreshes the explore cooldown of the grid position.
+    ///
+    /// # Cancellation
+    ///
+    /// This operation is cancellation safe. Cancellation aborts the operation.
+    pub(super) async fn refresh_cooldown(&mut self, grid: Grid) -> Result<(), ()> {
+        let item = ExplorerItem::new(grid, self.random_cooldown());
+        self.update_sender
+            .send(item.clone())
+            .await
+            .map_err(|_| ())?;
+        self.load_item(item);
+        Ok(())
+    }
+
+    fn load_item(&mut self, item: ExplorerItem) {
+        match self.ignore_counts.entry(item.grid.clone()) {
             Vacant(entry) => {
                 entry.insert(0);
             }
@@ -120,8 +156,7 @@ impl Explorer {
                 entry.get_mut().add_assign(1);
             }
         }
-        self.grids
-            .push(Reverse(Item::new(grid, self.random_cooldown())));
+        self.grids.push(Reverse(item));
     }
 
     fn random_cooldown(&self) -> Duration {

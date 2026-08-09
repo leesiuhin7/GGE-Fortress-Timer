@@ -6,7 +6,6 @@ use crate::{
     client::{Command, Sender},
     core::Grid,
     map::{
-        config::Config,
         explorer::Explorer,
         serialize::MapArguments,
         utils::{DuplicateChecker, Throttle, add_surroundings, remove_duplicates},
@@ -16,32 +15,33 @@ use crate::{
 enum SendError {
     Serialize,
     Send,
+    Explorer,
 }
 
 pub(crate) struct Adapter {
     request_receiver: mpsc::Receiver<Grid>,
     sender: Sender,
     explorer: Explorer,
-    message_cooldown: Duration,
+    cooldown: Duration,
 }
 
 impl Adapter {
     pub(crate) fn new(
+        explorer: Explorer,
         request_receiver: mpsc::Receiver<Grid>,
         sender: Sender,
-        config: Config,
+        cooldown: Duration,
     ) -> Self {
-        let explorer = Explorer::new(config.explore_kingdoms, config.explore_cooldown);
         Adapter {
             request_receiver,
             sender,
             explorer,
-            message_cooldown: config.message_cooldown,
+            cooldown,
         }
     }
 
     pub(crate) async fn run(mut self) {
-        let mut throttle = Throttle::new(self.message_cooldown);
+        let mut throttle = Throttle::new(self.cooldown);
         let mut checker = DuplicateChecker::new(Duration::from_mins(2));
         loop {
             throttle.wait().await;
@@ -68,7 +68,7 @@ impl Adapter {
         tokio::select! {
             biased;
             grid = self.request_receiver.recv() => grid,
-            Some(grid) = self.explorer.get_next() => Some(grid),
+            Some(grid) = self.explorer.get_next() => grid.ok(),
         }
     }
 
@@ -83,7 +83,9 @@ impl Adapter {
             .await
             .map_err(|()| SendError::Send)?;
 
-        self.explorer.refresh_cooldown(grid);
-        Ok(())
+        self.explorer
+            .refresh_cooldown(grid)
+            .await
+            .map_err(|()| SendError::Explorer)
     }
 }
