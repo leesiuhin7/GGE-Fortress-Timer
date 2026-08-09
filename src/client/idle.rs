@@ -1,6 +1,7 @@
 use backoff::{ExponentialBackoff, backoff::Backoff};
 use tokio::sync::mpsc;
 use tokio_tungstenite::tungstenite::{Bytes, Message};
+use tracing::info;
 
 use crate::client::{
     Client,
@@ -83,7 +84,7 @@ impl IdleClient {
             let mut backoff: ExponentialBackoff = cooldown_config.into();
 
             loop {
-                println!("create_session");
+                info!("Creating session");
                 let result = create_session(
                     session_config.clone(),
                     &mut request_receiver,
@@ -101,6 +102,7 @@ impl IdleClient {
                 let Some(duration) = backoff.next_backoff() else {
                     return; // No more retries allowed, fatal
                 };
+                info!("Session ended, retrying in {:.2}s", duration.as_secs_f64());
                 tokio::time::sleep(duration).await;
             }
         });
