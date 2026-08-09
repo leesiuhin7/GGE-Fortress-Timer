@@ -36,6 +36,10 @@ impl Item {
             grid,
         }
     }
+
+    fn with_time(grid: Grid, time: Instant) -> Self {
+        Item { time, grid }
+    }
 }
 
 impl PartialOrd for Item {
@@ -63,13 +67,15 @@ impl Explorer {
     pub(super) fn new(kingdoms: Vec<Kingdom>, cooldown: Duration) -> Self {
         let mut ignore_counts = HashMap::new();
         let mut grids = BinaryHeap::new();
+
+        let time = Instant::now(); // Use the same time for all items to prevent affecting order
         for ((x, y), kingdom) in (0..=98)
             .cartesian_product(0..=98)
             .cartesian_product(kingdoms)
         {
             let grid = Grid { x, y, kingdom };
             ignore_counts.insert(grid.clone(), 0);
-            grids.push(Reverse(Item::new(grid, Duration::from_secs(0))));
+            grids.push(Reverse(Item::with_time(grid, time)));
         }
 
         Explorer {
