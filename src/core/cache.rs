@@ -145,6 +145,16 @@ impl LocationCache {
         }
     }
 
+    /// Loads the specified [`Location`]s into the cache.
+    ///
+    /// Treats each [`Location`] as an update without sending [`Operation`] as output.
+    /// This should be used to set the initial state of the cache.
+    pub(crate) fn load_locations(&mut self, locations: impl Iterator<Item = Location>) {
+        for location in locations {
+            self.handle_update(location);
+        }
+    }
+
     fn handle_update(&mut self, location: Location) -> UpdateResult {
         let Location {
             position,
