@@ -199,6 +199,10 @@ impl LocationCache {
             return RequestResult::NotFound;
         };
 
+        if time < item.expiry_time() {
+            return RequestResult::NotNeeded;
+        }
+
         let _ = item.delay();
         if item.retries().unwrap_or(0) > self.config.max_retries {
             // Remove item after retries exceed limit
@@ -206,9 +210,6 @@ impl LocationCache {
             return RequestResult::ItemRemoved(position);
         }
 
-        if time < item.expiry_time() {
-            return RequestResult::NotNeeded;
-        }
         let result = self.request_sender.send(position.into()).await;
         if result.is_err() {
             return RequestResult::Failed; // Request channel closed
