@@ -1,10 +1,8 @@
-use tokio_tungstenite::{
-    connect_async,
-    tungstenite::{Error, client::IntoClientRequest, http::HeaderValue},
-};
+use tokio_tungstenite::tungstenite::{Error, client::IntoClientRequest, http::HeaderValue};
 
 use crate::client::session::{
     config::{Config, ORIGIN},
+    connect::connect_with_no_verification,
     connected::ConnectedSession,
 };
 
@@ -28,7 +26,7 @@ impl IdleSession {
         let headers = request.headers_mut();
         headers.insert("Origin", HeaderValue::from_str(ORIGIN)?);
 
-        let (ws, _) = connect_async(request).await?;
+        let (ws, _) = connect_with_no_verification(request).await?;
         Ok(ConnectedSession::new(ws, self.config))
     }
 }

@@ -10,9 +10,10 @@ futures-util = "0.3.33"
 itertools = "0.15.0"
 mongodb = "3.8.0"
 rand = "0.10.2"
+rustls = "0.23.43"
 serde = "1.0.229"
 serde_json = "1.0.151"
 tokio = { version = "1.53.1", features = ["full"] }
-tokio-tungstenite = { version = "0.30.0", features = ["native-tls"] }
+tokio-tungstenite = { version = "0.30.0", features = ["rustls-tls-native-roots"] }
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }

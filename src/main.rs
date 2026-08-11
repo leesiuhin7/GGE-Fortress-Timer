@@ -28,6 +28,10 @@ async fn main() {
         .with_env_filter(EnvFilter::from_default_env())
         .init();
 
+    rustls::crypto::ring::default_provider()
+        .install_default()
+        .expect("Failed to set default cryptographic provider");
+
     let uri = env::var("DB_URI").expect("DB_URI is required");
     let storage = Arc::new(Storage::connect(&uri).await.unwrap());
 

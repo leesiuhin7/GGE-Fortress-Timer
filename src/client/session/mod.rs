@@ -1,4 +1,5 @@
 mod config;
+mod connect;
 mod connected;
 mod idle;
 mod message;
