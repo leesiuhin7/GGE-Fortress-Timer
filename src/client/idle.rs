@@ -33,6 +33,9 @@ async fn create_session(
         .await
         .map_err(|_| SessionError::InitError)?;
 
+    // Purge all requests that were made before the session was ready
+    while request_receiver.try_recv().is_ok() {}
+
     let sender = session.sender().clone();
     let forward_request = async move {
         loop {
@@ -72,7 +75,7 @@ impl IdleClient {
     }
 
     pub(crate) fn connect(self) -> Client {
-        let (sender, mut request_receiver) = mpsc::channel::<Message>(32);
+        let (sender, mut request_receiver) = mpsc::channel::<Message>(8);
         let (message_sender, receiver) = mpsc::channel::<Bytes>(1024);
         let session_config = self.config.session.clone();
 
