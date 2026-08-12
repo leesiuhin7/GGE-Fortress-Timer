@@ -5,6 +5,7 @@ use axum::{
     http::{Response, StatusCode},
     routing::get,
 };
+use tower_http::cors::CorsLayer;
 use tracing::error;
 use tracing_subscriber::EnvFilter;
 
@@ -46,7 +47,8 @@ async fn main() {
                 }
             }),
         )
-        .route("/keep-alive", get(async || StatusCode::OK));
+        .route("/keep-alive", get(async || StatusCode::OK))
+        .layer(CorsLayer::permissive());
 
     let port = env::var("PORT").unwrap_or("10000".into());
     let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{port}"))
