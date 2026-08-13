@@ -210,6 +210,12 @@ impl LocationCache {
             return RequestResult::ItemRemoved(position);
         }
 
+        // Push update back with new expiry time to allow retires in the future
+        self.pending.push(Reverse(PendingUpdate {
+            time: item.expiry_time(),
+            position: position.clone(),
+        }));
+
         let result = self.request_sender.send(position.into()).await;
         if result.is_err() {
             return RequestResult::Failed; // Request channel closed
