@@ -101,7 +101,8 @@ impl Explorer {
     ///
     /// # Cancellation
     ///
-    /// This operation is cancellation safe. Cancellation simply aborts waiting.
+    /// This operation is not cancellation safe. Cancellation may cause a [`Grid`] to be
+    /// lost forever.
     pub(super) async fn get_next(&mut self) -> Option<Result<Grid, ()>> {
         loop {
             let peek = self.grids.peek_mut()?;
@@ -122,11 +123,16 @@ impl Explorer {
                 .duration_since(SystemTime::now())
                 .unwrap_or(Duration::ZERO);
             tokio::time::sleep(duration).await;
+
             // Deferring removal for cancellation safety
             let Reverse(ExplorerItem {
                 explore_time: _,
                 grid,
             }) = PeekMut::pop(peek);
+
+            // Removing the entry to maintain the state of ignore_counts
+            // Using unwrap as the entry is guaranteed to exist
+            self.ignore_counts.remove(&grid).unwrap();
             // Reset cooldown
             return Some(self.refresh_cooldown(grid.clone()).await.map(|()| grid));
         }
