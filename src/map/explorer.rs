@@ -101,8 +101,7 @@ impl Explorer {
     ///
     /// # Cancellation
     ///
-    /// This operation is not cancellation safe. Cancellation may cause a [`Grid`] to be
-    /// lost forever.
+    /// This operation is cancellation safe. Cancellation aborts the operation.
     pub(super) async fn get_next(&mut self) -> Option<Result<Grid, ()>> {
         loop {
             let peek = self.grids.peek_mut()?;
@@ -124,17 +123,26 @@ impl Explorer {
                 .unwrap_or(Duration::ZERO);
             tokio::time::sleep(duration).await;
 
-            // Deferring removal for cancellation safety
+            // Cloning and dropping here to allow referencing self later
+            let grid = grid.clone();
+            drop(peek);
+
+            let item = ExplorerItem::new(grid, self.random_cooldown());
+            // Awaiting first before any mutations for cancellation safety
+            if self.send_update(item.clone()).await.is_err() {
+                return Some(Err(()));
+            }
+
+            // Replaces the current item with the new item, not need to mutate ignore_counts as
+            // there is nothing to ignore
+            // Using unwrap as it is guaranteed to exist by the previous peek
             let Reverse(ExplorerItem {
                 explore_time: _,
                 grid,
-            }) = PeekMut::pop(peek);
+            }) = self.grids.pop().unwrap();
+            self.grids.push(Reverse(item));
 
-            // Removing the entry to maintain the state of ignore_counts
-            // Using unwrap as the entry is guaranteed to exist
-            self.ignore_counts.remove(&grid).unwrap();
-            // Reset cooldown
-            return Some(self.refresh_cooldown(grid.clone()).await.map(|()| grid));
+            return Some(Ok(grid));
         }
     }
 
@@ -145,12 +153,13 @@ impl Explorer {
     /// This operation is cancellation safe. Cancellation aborts the operation.
     pub(super) async fn refresh_cooldown(&mut self, grid: Grid) -> Result<(), ()> {
         let item = ExplorerItem::new(grid, self.random_cooldown());
-        self.update_sender
-            .send(item.clone())
-            .await
-            .map_err(|_| ())?;
+        self.send_update(item.clone()).await?;
         self.load_item(item);
         Ok(())
+    }
+
+    async fn send_update(&self, item: ExplorerItem) -> Result<(), ()> {
+        self.update_sender.send(item).await.map_err(|_| ())
     }
 
     fn load_item(&mut self, item: ExplorerItem) {
