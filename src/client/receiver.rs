@@ -1,5 +1,4 @@
 use tokio::sync::mpsc;
-use tokio_tungstenite::tungstenite::Bytes;
 
 pub(crate) struct Response {
     pub(crate) command: String,
@@ -31,11 +30,11 @@ pub(crate) enum Error {
 }
 
 pub(crate) struct Receiver {
-    receiver: mpsc::Receiver<Bytes>,
+    receiver: mpsc::Receiver<bytes::Bytes>,
 }
 
 impl Receiver {
-    pub(super) fn new(receiver: mpsc::Receiver<Bytes>) -> Self {
+    pub(super) fn new(receiver: mpsc::Receiver<bytes::Bytes>) -> Self {
         Receiver { receiver }
     }
 

@@ -1,5 +1,5 @@
 use tokio::sync::mpsc;
-use tokio_tungstenite::tungstenite::Message;
+use yawc::Frame;
 
 use crate::client::session::Config;
 
@@ -10,12 +10,12 @@ pub(crate) struct Command {
 
 #[derive(Clone)]
 pub(crate) struct Sender {
-    sender: mpsc::Sender<Message>,
+    sender: mpsc::Sender<Frame>,
     config: Config,
 }
 
 impl Sender {
-    pub(super) fn new(sender: mpsc::Sender<Message>, config: Config) -> Self {
+    pub(super) fn new(sender: mpsc::Sender<Frame>, config: Config) -> Self {
         Sender { sender, config }
     }
 
@@ -25,9 +25,6 @@ impl Sender {
         let message = format!("%xt%{server}%{command}%1%{payload}%");
 
         // Simply drop the command if send fails as it is fatal
-        self.sender
-            .send(Message::Text(message.into()))
-            .await
-            .map_err(|_| ())
+        self.sender.send(Frame::text(message)).await.map_err(|_| ())
     }
 }

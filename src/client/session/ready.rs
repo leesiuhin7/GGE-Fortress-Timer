@@ -4,17 +4,14 @@ use tokio::{
     sync::mpsc::{self, error::SendError},
     task::JoinHandle,
 };
-use tokio_tungstenite::{
-    MaybeTlsStream, WebSocketStream,
-    tungstenite::{Bytes, Message},
-};
+use yawc::{Frame, MaybeTlsStream, WebSocket};
 
 use crate::client::session::{config::Config, receiver::receiver, sender::sender};
 
 async fn handle_connection(
-    ws: WebSocketStream<MaybeTlsStream<TcpStream>>,
-    request_receiver: mpsc::Receiver<Message>,
-    msg_sender: mpsc::Sender<Bytes>,
+    ws: WebSocket<MaybeTlsStream<TcpStream>>,
+    request_receiver: mpsc::Receiver<Frame>,
+    msg_sender: mpsc::Sender<bytes::Bytes>,
     config: Config,
 ) {
     let (sink, stream) = ws.split();
@@ -29,14 +26,14 @@ async fn handle_connection(
 
 pub(crate) struct ReadySession {
     handle: JoinHandle<()>,
-    sender: mpsc::Sender<Message>,
-    receiver: mpsc::Receiver<Bytes>,
+    sender: mpsc::Sender<Frame>,
+    receiver: mpsc::Receiver<bytes::Bytes>,
 }
 
 impl ReadySession {
-    pub(super) fn new(ws: WebSocketStream<MaybeTlsStream<TcpStream>>, config: Config) -> Self {
-        let (sender, request_receiver) = mpsc::channel::<Message>(32);
-        let (msg_sender, receiver) = mpsc::channel::<Bytes>(1024);
+    pub(super) fn new(ws: WebSocket<MaybeTlsStream<TcpStream>>, config: Config) -> Self {
+        let (sender, request_receiver) = mpsc::channel::<Frame>(32);
+        let (msg_sender, receiver) = mpsc::channel::<bytes::Bytes>(1024);
         let handle = tokio::spawn(async move {
             handle_connection(ws, request_receiver, msg_sender, config).await;
         });
@@ -47,15 +44,16 @@ impl ReadySession {
         }
     }
 
-    pub(crate) async fn send(&self, message: Message) -> Result<(), SendError<Message>> {
-        self.sender.send(message).await
+    #[allow(unused)]
+    pub(crate) async fn send(&self, frame: Frame) -> Result<(), SendError<Frame>> {
+        self.sender.send(frame).await
     }
 
-    pub(crate) fn sender(&self) -> &mpsc::Sender<Message> {
+    pub(crate) fn sender(&self) -> &mpsc::Sender<Frame> {
         &self.sender
     }
 
-    pub(crate) async fn recv(&mut self) -> Option<Bytes> {
+    pub(crate) async fn recv(&mut self) -> Option<bytes::Bytes> {
         self.receiver.recv().await
     }
 }

@@ -6,10 +6,8 @@ use rustls::{
     crypto::{ring::default_provider, verify_tls12_signature, verify_tls13_signature},
 };
 use tokio::net::TcpStream;
-use tokio_tungstenite::{
-    Connector, MaybeTlsStream, WebSocketStream, connect_async_tls_with_config,
-    tungstenite::{Error, client::IntoClientRequest, handshake::client::Response},
-};
+use tokio_rustls::TlsConnector;
+use yawc::{HttpRequestBuilder, MaybeTlsStream, Options, WebSocket, WebSocketError};
 
 #[derive(Debug)]
 struct DisableVerification;
@@ -61,19 +59,57 @@ impl ServerCertVerifier for DisableVerification {
     }
 }
 
-pub(super) async fn connect_with_no_verification<R: IntoClientRequest + Unpin>(
-    request: R,
-) -> Result<(WebSocketStream<MaybeTlsStream<TcpStream>>, Response), Error> {
+pub(super) struct Builder<'a> {
+    builder: HttpRequestBuilder,
+    url: &'a str,
+}
+
+impl<'a> Builder<'a> {
+    pub(super) fn new(url: &'a str) -> Self {
+        Builder {
+            builder: HttpRequestBuilder::new().uri(url),
+            url,
+        }
+    }
+
+    pub(super) fn header(self, key: &str, value: &str) -> Self {
+        let builder = self.builder.header(key, value);
+        Builder {
+            builder,
+            url: self.url,
+        }
+    }
+
+    fn url(&self) -> &str {
+        self.url
+    }
+}
+
+impl From<Builder<'_>> for HttpRequestBuilder {
+    fn from(value: Builder<'_>) -> Self {
+        value.builder
+    }
+}
+
+pub(crate) enum ConnectError {
+    Url,
+    #[allow(unused)]
+    WebSocket(WebSocketError),
+}
+
+pub(super) async fn connect_with_no_verification(
+    builder: Builder<'_>,
+) -> Result<WebSocket<MaybeTlsStream<TcpStream>>, ConnectError> {
     let config = ClientConfig::builder()
         .dangerous()
         .with_custom_certificate_verifier(Arc::new(DisableVerification))
         .with_no_client_auth();
 
-    connect_async_tls_with_config(
-        request,
-        None,
-        false,
-        Some(Connector::Rustls(Arc::new(config))),
-    )
-    .await
+    let url = builder.url().parse().map_err(|_| ConnectError::Url)?;
+    WebSocket::connect(url)
+        .with_connector(TlsConnector::from(Arc::new(config)))
+        .with_options(Options::default().with_balanced_compression())
+        .with_request(builder.into())
+        .await
+        .map_err(ConnectError::WebSocket)
 }
