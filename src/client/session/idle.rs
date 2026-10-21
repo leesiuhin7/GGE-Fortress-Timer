@@ -1,8 +1,6 @@
-use tokio_tungstenite::tungstenite::{Error, client::IntoClientRequest, http::HeaderValue};
-
 use crate::client::session::{
     config::{Config, ORIGIN},
-    connect::connect_with_no_verification,
+    connect::{Builder, ConnectError, connect_with_no_verification},
     connected::ConnectedSession,
 };
 
@@ -19,14 +17,10 @@ impl IdleSession {
     ///
     /// # Cancellation safety
     /// Cancellation interrupts the connection request.
-    pub(crate) async fn connect(self) -> Result<ConnectedSession, Error> {
-        let url = self.config.url.as_str();
-        let mut request = url.into_client_request()?;
+    pub(crate) async fn connect(self) -> Result<ConnectedSession, ConnectError> {
+        let request = Builder::new(&self.config.url).header("Origin", ORIGIN);
 
-        let headers = request.headers_mut();
-        headers.insert("Origin", HeaderValue::from_str(ORIGIN)?);
-
-        let (ws, _) = connect_with_no_verification(request).await?;
+        let ws = connect_with_no_verification(request).await?;
         Ok(ConnectedSession::new(ws, self.config))
     }
 }

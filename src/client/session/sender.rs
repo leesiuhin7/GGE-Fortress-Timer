@@ -6,7 +6,7 @@ use tokio::{
     sync::mpsc,
     time::{Interval, MissedTickBehavior, interval},
 };
-use tokio_tungstenite::{MaybeTlsStream, WebSocketStream, tungstenite::Message};
+use yawc::{Frame, MaybeTlsStream, WebSocket};
 
 use crate::client::session::{config::Config, message::Messages};
 
@@ -19,11 +19,11 @@ fn ping_ticker() -> Interval {
 }
 
 enum Action {
-    Send(Option<Message>),
+    Send(Option<Frame>),
     SendPing,
 }
 
-/// Repeatedly forwards [`Message`] from a [`Receiver`](mpsc::Receiver) to a WebSocket stream.
+/// Repeatedly forwards [`Frame`] from a [`Receiver`](mpsc::Receiver) to a WebSocket stream.
 ///
 /// Additionally, ping messages are sent into the WebSocket stream at an interval.
 ///
@@ -31,22 +31,22 @@ enum Action {
 /// Cancellation prevents any more messages from being sent. Any queued messages are dropped and
 /// will be lost.
 pub(super) async fn sender(
-    mut sink: SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>,
-    mut receiver: mpsc::Receiver<Message>,
+    mut sink: SplitSink<WebSocket<MaybeTlsStream<TcpStream>>, Frame>,
+    mut receiver: mpsc::Receiver<Frame>,
     config: Config,
 ) {
     let mut ping_ticker = ping_ticker();
     loop {
         let action = tokio::select! {
             biased;
-            message = receiver.recv() => Action::Send(message),
+            frame = receiver.recv() => Action::Send(frame),
             _ = ping_ticker.tick() => Action::SendPing,
         };
 
         let result = match action {
-            Action::Send(Some(message)) => sink.send(message).await.map_err(|_| ()),
-            Action::SendPing => sink.send(config.ping().into()).await.map_err(|_| ()),
-            Action::Send(_) => Err(()),
+            Action::Send(Some(frame)) => sink.send(frame).await.map_err(|_| ()),
+            Action::SendPing => sink.send(Frame::text(config.ping())).await.map_err(|_| ()),
+            Action::Send(None) => Err(()),
         };
         if result.is_err() {
             return;

@@ -1,7 +1,7 @@
 use backoff::{ExponentialBackoff, backoff::Backoff};
 use tokio::sync::mpsc;
-use tokio_tungstenite::tungstenite::{Bytes, Message};
 use tracing::info;
+use yawc::Frame;
 
 use crate::client::{
     Client,
@@ -20,8 +20,8 @@ enum SessionError {
 
 async fn create_session(
     config: SessionConfig,
-    request_receiver: &mut mpsc::Receiver<Message>,
-    message_sender: &mpsc::Sender<Bytes>,
+    request_receiver: &mut mpsc::Receiver<Frame>,
+    message_sender: &mpsc::Sender<bytes::Bytes>,
 ) -> Result<(), SessionError> {
     let idle_session = IdleSession::new(config);
     let connected_session = idle_session
@@ -75,8 +75,8 @@ impl IdleClient {
     }
 
     pub(crate) fn connect(self) -> Client {
-        let (sender, mut request_receiver) = mpsc::channel::<Message>(8);
-        let (message_sender, receiver) = mpsc::channel::<Bytes>(1024);
+        let (sender, mut request_receiver) = mpsc::channel::<Frame>(8);
+        let (message_sender, receiver) = mpsc::channel::<bytes::Bytes>(1024);
         let session_config = self.config.session.clone();
 
         let handle = tokio::spawn(async move {

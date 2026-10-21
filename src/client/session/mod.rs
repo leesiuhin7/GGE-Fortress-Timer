@@ -8,6 +8,8 @@ mod receiver;
 mod sender;
 mod timeout;
 
+#[allow(unused)]
 pub(crate) use crate::client::session::{
-    config::Config, connected::ConnectedSession, idle::IdleSession, ready::ReadySession,
+    config::Config, connect::ConnectError, connected::ConnectedSession, idle::IdleSession,
+    ready::ReadySession,
 };
